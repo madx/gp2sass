@@ -1,0 +1,9 @@
+== gp2sass
+
+gp2sass is a small utility to convert a color palette to a Sass constant set.
+
+Right now it only supports GIMP palettes (.gpl)
+
+Run gp2sass --help for a full list of options.
+
+You may want to chmod +x gp2sass and to put it in a folder known by yout PATH environment variable.
