@@ -1,0 +1,157 @@
+#!/usr/bin/env ruby
+
+# Author: MadX <root+gp2sass@yapok.org>
+# License: Public domain
+
+require 'optparse'
+require 'ostruct'
+
+# Command line option parser (relies on optparse)
+class G2SOptionParser
+
+  Version = [1, 0]
+
+  def self.parse(args)
+    options = OpenStruct.new
+    options.output  = $stdout
+    options.mode    = :overwrite
+    options.verbose = false
+    options.notify  = true
+    
+    opts = OptionParser.new do |opts|
+      opts.banner = "Usage: gp2sass [options] source_file"
+      
+      opts.separator ""
+      opts.separator "Specific options:"
+      
+      opts.on('-o', '--output [FILE]', 'Output contents in FILE') do |file|
+        options.output = file
+      end
+      
+      opts.on('-p', '--prepend', 'Prepend to the selected file') do |p|
+        options.mode = :prepend
+      end
+      
+      opts.on('-a', '--append', 'Append to the seleced file') do |a|
+        options.mode = :append
+      end
+      
+      opts.on('-n', '--[no-]notify', 'Put a loud comment in the sass output',
+        'to notify the success') do |n|
+        options.notify = n
+      end
+      
+      opts.on('-v', '--[no-]verbose', 'Run verbosely') do |v|
+        options.verbose = v
+      end
+      
+      opts.separator ""
+      opts.separator "Common options:"
+      
+      opts.on_tail("-h", "--help", "Show this message") do
+        puts opts
+        puts  "\nDescription:",
+          "  gp2sass is a command line tool to convert Gimp palette files (gpl)",
+          "  to a Sass constant set."
+          
+        puts "\nExample:",
+          "  Try the following command (if you have The Gimp installed):",
+          "", "    gp2sass Tango",
+          ""
+        exit
+      end
+
+      opts.on_tail("--version", "Show version") do
+        puts "gp2sass v#{Version.join('.')}"
+        exit
+      end
+      
+    end
+    
+    opts.parse!(args)
+    options
+  end # self.parse()
+
+end # G2SOptionParser
+
+# Parse ARGV :)
+source  = ARGV[-1]
+options = G2SOptionParser.parse(ARGV[0..(ARGV.length - 1)])
+
+# Yes, the program begins \o/
+begin
+
+  # Guess the source or raise an error if no file matches
+  if source.nil? then raise "Usage: gp2sass [options] source_file" end
+  searchable_dirs = [
+    '.', 
+    '~/.gimp-2.4/palettes/',
+    '~/.gimp-2.2/palettes/',
+    '/usr/share/gimp/2.0/palettes'
+  ].collect{|path| File.expand_path(path) }
+  path = nil
+  source = File.basename(source, '.gpl') + '.gpl'
+  if options.verbose  
+    puts "Searching %s in" % source
+    searchable_dirs.each {|d| puts "  #{File.expand_path(d)}"}
+  end
+  searchable_dirs.each do |dir|
+    path = File.join(dir, source )
+    if File.exists?(path) then break else path = nil end
+  end
+  raise 'File "%s" not found' % source if path.nil?
+  
+  puts "File found: %s" % path if options.verbose
+  
+  # Open the palette file and parse it
+  header, *data = File.read(path).split('#')
+  palette = OpenStruct.new
+  palette.name = header.gsub(/.*Name: ([^\n]+).*/m, '\1')
+  palette.colors = {}
+  data.join.strip.each_line do |line|
+    digits, name = line.split("\t")
+    name = name.downcase.gsub(/ +/, '_').strip
+    palette.colors[name] = digits.scan(/\S+/).collect {|c| "%02x" % c.to_i }
+  end
+  output = options.notify ? "/* %s palette imported#{$/}" % palette.name : ''
+  palette.colors.each do |name, hexes|
+    output += "!%s = #%s%s%s#{$/}" % ([name] + hexes)
+  end
+  if options.verbose
+    puts "Palette file parsed, output will look like :"
+    puts output.split($/).collect {|l| l = "  #{l}"}.join($/)
+  end
+  if options.output == $stdout
+    puts output
+  else
+    if options.verbose && !File.exists?(options.output)
+      puts "File %s doesn't exist, creating it" % options.output
+    end
+    if File.exists?(options.output) 
+      buf = File.read(options.output) 
+      puts "Saving file contents" if options.verbose
+    else 
+      buf = nil 
+    end
+    f = File.open(options.output, 'w+')
+    puts 'Opening "%s"' % options.output if options.verbose
+    case options.mode
+      when :prepend
+        msg = "Prepending output to file contents"
+        output = "#{output}#{$/}#{buf}"
+      when :append
+        msg = "Appending output to file contents"
+        output = "#{buf}#{$/}#{output}"
+      else
+        msg = "Overwriting file contents"
+    end
+    puts msg if options.verbose
+    f.write(output)
+    f.close
+    puts "Finished." if options.verbose
+  end
+  
+rescue => e
+  puts e.message
+  exit
+end
